@@ -138,6 +138,9 @@ The chain is mostly linear (v1→v3→v4→…→v9); **v2 is an optional NaN-de
 Published image digests, so you can tell whether a local build differs:
 `sm121-v8` → `sha256:d77d375c742fc54f436dec5108b440f58f021bc6600052bf0e8fe5840357e78f` ·
 `sm121-v11-dflash2` → `sha256:4def0ef644cb2e9814136dcffd5e385e21bc594f48f3b292234051904abe85a6`
+
+Both tags predate `overlay-dflash2/patch_prefix_cache_draft_group.py`, so a pull of
+`sm121-v11-dflash2` still has the zero-hit coordinator; rebuild the overlay for the fix.
 </details>
 
 ---
@@ -261,6 +264,11 @@ point. It does not recover on its own.
   the common case, and it is what the README's headline figures use). Serving deep
   concurrency should set k=5, or better, use a schedule with the crossover at C4:
   `"num_speculative_tokens_per_batch_size": [[1,3,7],[4,512,5]]`"
+  A second independent pair (#21, 2026-09-16) re-measured after the prefix-cache repair and found the
+  acceptance regime had moved (per-position ~100/97/96/91/90%, mean 4.75/5): k=7 beat k=5 by +19% on
+  structured single-stream, was flat on prose, and lost 9% at C6. Same conclusion from the other
+  direction: k is a workload choice, and the crossover sits around C4-C6.
+- **Prefix cache now hits with DFlash2** once the overlay includes `patch_prefix_cache_draft_group.py` (#13). Agent sessions stop re-prefilling the whole conversation each turn: repeated 262K prompt, 0.986 hit rate, warm TTFT 3 s vs 192 s cold. See [PREFIX-CACHE-DFLASH2-SM121](docs/PREFIX-CACHE-DFLASH2-SM121.md).
 
 ---
 
@@ -352,11 +360,13 @@ Blackwell part. Upstream-ready issue drafts with receipts:
 |---|---|
 | [DEPLOY-REPORT](docs/DEPLOY-REPORT.md) | the seven day-0 bugs, root causes, receipts, every serve flag |
 | [DFLASH2-SPECULATIVE-DECODING](docs/DFLASH2-SPECULATIVE-DECODING.md) | the drafter port: four patches, the KV-layout fix, nine boots of failure modes |
+| [PREFIX-CACHE-DFLASH2-SM121](docs/PREFIX-CACHE-DFLASH2-SM121.md) | why the prefix cache never hit with the drafter group, the two-edit coordinator fix, and a 0.986 hit rate at 262K |
 | [BENCH-C1-C6-DFLASH2](docs/BENCH-C1-C6-DFLASH2.md) | full concurrency tables and how to read them |
 | [SM121-CRASH-FORENSICS](docs/SM121-CRASH-FORENSICS-2026-08-27.md) | why the fleet "randomly" died: a topk kernel bug and phantom KV backing |
 | [GB10-KV-MEMORY-LADDER](docs/GB10-KV-MEMORY-LADDER.md) | why KV budgets above vLLM's suggestion die, and the driver-level mechanism |
 | [KV-HUNT-672K-TP2-RECORD](docs/KV-HUNT-672K-TP2-RECORD.md) | the 8-attempt hunt past the 507K wall |
 | **[OPEN-PROBLEMS](docs/OPEN-PROBLEMS.md)** | **everything we broke and could not fix — reproducible, with next probes. Start here if you want to contribute.** |
+| [GB10-UNIFIED-MEMORY-FIELD-REPORT](docs/GB10-UNIFIED-MEMORY-FIELD-REPORT.md) | field report from a second fleet: the memory guard that ends the load-time driver failures, the min_free_kbytes trap, zero-fault warm-up, and hard power-offs with the GPU idle |
 
 **Debugging kit** (reusable for any day-0 model on new silicon): `probes/probe_sm121_nope_mla.py`
 (probe a kernel with your real geometry before patching arch gates) · `probes/probe_fa2_bisect.py`
