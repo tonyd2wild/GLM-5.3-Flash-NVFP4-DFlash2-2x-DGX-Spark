@@ -79,6 +79,33 @@ image is published, rebuild the overlay and point `IMAGE` at your own tag.
 3. Watch `prompt_tokens_details.cached_tokens` in the completion response
    (`--enable-prompt-tokens-details`); it reports the same number.
 
+### No-rebuild path: bind-mount the patched file onto the published image (#21)
+
+An independent TP2 pair (gdeyoung, 2026-09-16) applied the repair to the published
+`sm121-v11-dflash2` without rebuilding, the same way the launcher already overlays
+`sparse_attn_indexer_kpool.py`:
+
+1. `docker cp` the live `vllm/v1/core/kv_cache_coordinator.py` out of a running container.
+2. Run `patch_prefix_cache_draft_group.py` against that copy. Its self-check predicate needs a
+   container with the file staged into site-packages, so do the patching inside a throwaway
+   container rather than on the host.
+3. Add one `-v` line to the launcher next to the kpool overlay mount, pointing the patched
+   copy at `/usr/local/lib/python3.12/dist-packages/vllm/v1/core/kv_cache_coordinator.py:ro`.
+4. Relaunch both ranks once.
+
+Their verification, identical 5,178-token prompt sent three times at temperature 0:
+
+| send | wall | delta `prefix_cache_hits_total` |
+|---|---|---|
+| 1 (cold) | 4.30 s | 0 |
+| 2 | 7.31 s | +4,608 = floor(5178 / 2304) x 2304 |
+| 3 (warm) | **0.71 s** | +4,608 |
+
+6.1x faster warm re-prefill, decode unchanged. Lifetime counter before the fix on that pair:
+0 hits / 35,280 queries. Two probe notes so nobody misreads a healthy engine as broken: a
+prompt shorter than one block (2,304 tokens) can never hit, and the commit lands on send 2 on
+this arch, so the hit shows up on the third send.
+
 ## Related: long-context concurrency (#14)
 
 With the prefix cache working, agent sessions stop re-prefilling the whole

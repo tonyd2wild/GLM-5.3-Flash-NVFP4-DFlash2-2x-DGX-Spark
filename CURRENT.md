@@ -48,6 +48,13 @@ Public, anonymous pull, on **both** nodes. Also required on both nodes before la
 `cp docker/sparse_attn_indexer_kpool_sm121.py ~/patches/sparse_attn_indexer_kpool.py`
 (the SM121 top-k fix the launcher bind-mounts over the image's copy).
 
+**The published `sm121-v11-dflash2` tag was built 2026-08-28 and does not carry the #18
+prefix-cache repair.** With it, agent sessions re-prefill the whole conversation every turn.
+Two ways to get the repair without waiting for a new tag: rebuild the overlay
+(`overlay-dflash2/Dockerfile`), or bind-mount the patched `kv_cache_coordinator.py` onto v11
+the way the launcher already overlays the kpool file. Both are written up in
+[docs/PREFIX-CACHE-DFLASH2-SM121.md](docs/PREFIX-CACHE-DFLASH2-SM121.md).
+
 ## Weights
 
 ```

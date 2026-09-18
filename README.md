@@ -272,6 +272,22 @@ point. It does not recover on its own.
 
 ---
 
+- **Multi-user long context: keep `--max-num-seqs 1` until #14 is closed.** Two concurrent
+  ~114K-token requests collapse decode to ~2 tok/s each on some TP2 pairs (#14, reproduced on
+  a 4 GiB / 414K-token KV pin in #19, so it is not KV-pool exhaustion). The leading
+  explanation is the DSA indexer: no varlen path off SM100, so each draft token costs one
+  full-context indexer row per sequence. A lower k shrinks exactly that cost, which is the
+  other reason long-context agent traffic wants k below 7. Single-user long context and
+  multi-user short prompts are unaffected.
+- **Pin the drafter revision.** `incoai/GLM-5.3-Flash-DFlash2` has shipped different bytes
+  under the same tag (#7: `model.safetensors` sha256 `b33c0347...` vs `8931dc52...`, pulled
+  days apart). Two pairs on the same recipe measured 0.73 acceptance and one measured 0.35,
+  with that hash mismatch sitting right there. If acceptance is far below the numbers in
+  [Results](#results-tp2-2026-08-28), re-pull the drafter by explicit revision before
+  touching anything in the image chain, and run the count-to-100 probe at temperature 0
+  (`Count from 1 to 100. Output only the numbers, one per line, nothing else.`): a healthy
+  engine returns ~0.9 acceptance on it regardless of workload.
+
 ## Status: work in progress
 
 This repo is an active bring-up log, not a finished product. Everything published here is
@@ -353,6 +369,14 @@ Blackwell part. Upstream-ready issue drafts with receipts:
   `chat_template_kwargs: {"enable_thinking": false}`.
 
 ---
+
+- **Do not benchmark on a fresh boot; warm the batch shapes first (#21).** The first
+  concurrent burst after a cold start can trigger a TileLang JIT compile mid-batch
+  (`mhc_pre_big_fuse_with_norm_tilelang` in the log at the exact moment of the burst); the
+  worker RPC stalls cross-rank and the engine dies with `TimeoutError: RPC call to
+  sample_tokens timed out` then `EngineDeadError`. Send a few small concurrent requests
+  (4 x 32-token generations) before any real load. `fleet_watchdog.sh` recovers the pair, but
+  the bench you were running is gone.
 
 ## Deeper reading
 
