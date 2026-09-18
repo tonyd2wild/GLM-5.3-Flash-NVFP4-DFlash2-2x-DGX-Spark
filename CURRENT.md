@@ -14,8 +14,8 @@ GLM-5.3-Flash NVFP4 + DFlash2, **tensor-parallel 2 across two DGX Spark (GB10/SM
 
 | rank | host | IP | role |
 |---|---|---|---|
-| **1** | Spark4 | `192.168.192.4` | worker (`--headless`) — **launch FIRST** |
-| **0** | Reddie | `192.168.192.2` | head — serves the OpenAI API on **:8000** |
+| **1** | Spark4 | `192.168.192.4` | worker (`--headless`), **launch FIRST** |
+| **0** | Reddie | `192.168.192.2` | head, serves the OpenAI API on **:8000** |
 
 Rendezvous: master addr `192.168.192.2`, master port `29521`, `--nnodes 2`,
 `--distributed-executor-backend mp`.
@@ -27,15 +27,15 @@ Rendezvous: master addr `192.168.192.2`, master port `29521`, `--nnodes 2`,
 
 ```bash
 sync; echo 3 | sudo tee /proc/sys/vm/drop_caches      # BOTH nodes, every launch
-./launch-glm53-vllm-tp2-dflash2.sh 1    # Spark4, rank 1, worker — FIRST
+./launch-glm53-vllm-tp2-dflash2.sh 1    # Spark4, rank 1, worker, FIRST
 sleep 25
-./launch-glm53-vllm-tp2-dflash2.sh 0    # Reddie, rank 0, head — serves :8000
+./launch-glm53-vllm-tp2-dflash2.sh 0    # Reddie, rank 0, head, serves :8000
 ```
 
 [`launch-glm53-vllm-tp2-dflash2.sh`](launch-glm53-vllm-tp2-dflash2.sh) is the only launcher
 for this recipe. The drop-caches step is not optional on these unified-memory nodes.
 
-Readiness takes ~15 minutes (shard load dominates). Poll `/health`, never `/v1/models` —
+Readiness takes ~15 minutes (shard load dominates). Poll `/health`, never `/v1/models`, 
 the latter returns 200 from config alone with a dead engine behind it.
 
 ## Image
@@ -97,7 +97,7 @@ The drafter, also on both nodes: `/var/tmp/models/GLM-5.3-Flash-DFlash2` (2.2 GB
 This reverses earlier README guidance ("let the profiler size the pool, do not pin
 `--kv-cache-memory`"). The shipped launcher pins **6442450944 bytes**. Rationale and
 measurement: [`docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md`](docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md),
-section "KV 3 -> 6 GiB: unconditional" — 6 preemptions under load at 3 GiB, **0 at 6 GiB**,
+section "KV 3 -> 6 GiB: unconditional", 6 preemptions under load at 3 GiB, **0 at 6 GiB**,
 with the pool going **310,292 -> 678,661 tokens**. Preemption under load costs more than any
 tok/s figure, and the memory is available. Adopted as the default in
 [#16](https://github.com/tonyd2wild/GLM-5.3-Flash-NVFP4-DFlash2-2x-DGX-Spark/pull/16).
@@ -108,13 +108,13 @@ Measured KV pool at the shipped pin: **678,661 tokens**.
 
 CUDA graphs are the **TP4 sibling repo's lane**, not this one. Same doc, section "CUDA graphs
 do NOT transfer from TP4": `cudagraph_mode: FULL_AND_PIECEWISE` is a clear win at TP4
-(503 -> 530 tok/s aggregate) and **flat** at TP2 — C1 +4.1%, C2 −4.6%, C4 +1.1%, C6 −1.7%,
+(503 -> 530 tok/s aggregate) and **flat** at TP2, C1 +4.1%, C2 −4.6%, C4 +1.1%, C6 −1.7%,
 mean ≈ −0.3%. TP2 keeps `--enforce-eager`.
 
 ## Expected numbers
 
 All from [`docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md`](docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md),
-section "Speculative depth: k=7 below C4, k=5 above it" — measured 2026-09-02, RedHatAI
+section "Speculative depth: k=7 below C4, k=5 above it", measured 2026-09-02, RedHatAI
 compressed-tensors checkpoint, DFlash2, temperature 0, 8-prompt set, median of 3, each arm
 under its own `VLLM_CACHE_ROOT`.
 
@@ -161,7 +161,7 @@ Deep-concurrency serving should set k=5, or use the schedule with the crossover 
 
 ## How we quote numbers
 
-- **Decode** is quoted from **real prompts** — prose and code — because acceptance, and
+- **Decode** is quoted from **real prompts**, prose and code, because acceptance, and
   therefore throughput, is workload-bound. A single decode number without the prompt mix is
   not comparable to anything.
 - **The counting prompt** (count-to-100 and friends) is quoted only as a **labeled
@@ -174,7 +174,7 @@ Deep-concurrency serving should set k=5, or use the schedule with the crossover 
 
 Use the sibling repo:
 **[GLM-5.3-Flash-NVFP4-1M-KV-4x-DGX-Spark](https://github.com/tonyd2wild/GLM-5.3-Flash-NVFP4-1M-KV-4x-DGX-Spark)**
-— TP4, the model-native 1M context, and the lane where CUDA graphs pay.
+, TP4, the model-native 1M context, and the lane where CUDA graphs pay.
 
 ## Do not use
 

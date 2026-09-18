@@ -2,11 +2,11 @@
 
 [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) (320B total / 18B active MoE) served by vLLM at **tensor-parallel 2 across two DGX Spark** (GB10/SM121), **262,144-token context**, fp8 KV, DFlash2 speculative drafter.
 
-**Current recipe: [CURRENT.md](CURRENT.md).** Read that first — it is the one configuration this repo ships, and it wins over anything below that disagrees.
+**Current recipe: [CURRENT.md](CURRENT.md).** Read that first, it is the one configuration this repo ships, and it wins over anything below that disagrees.
 
-One launcher: [`launch-glm53-vllm-tp2-dflash2.sh`](launch-glm53-vllm-tp2-dflash2.sh) — **worker Spark4 (rank 1) FIRST, then head Reddie (rank 0)**, which serves :8000.
+One launcher: [`launch-glm53-vllm-tp2-dflash2.sh`](launch-glm53-vllm-tp2-dflash2.sh), **worker Spark4 (rank 1) FIRST, then head Reddie (rank 0)**, which serves :8000.
 
-Weights: [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (compressed-tensors) at `/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat` — ModelOpt and abliterated NVFP4 quants corrupt tokens on this stack and the launcher refuses them.
+Weights: [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (compressed-tensors) at `/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat`, ModelOpt and abliterated NVFP4 quants corrupt tokens on this stack and the launcher refuses them.
 
 Everything else here is reference: the bring-up log, the day-0 bug receipts, the benchmark history, and the open problems.
 
@@ -63,7 +63,7 @@ No retag step: the launchers reference these `ghcr.io/tonyd2wild/…` tags direc
 
 **2. Fetch the weights** to the same path on both nodes (or NFS-export from the head):
 [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (default) →
-`/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat` — this is the path the launcher checks
+`/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat`, this is the path the launcher checks
 (`MODEL_HOST_PATH`); override with `MODEL_HOST_PATH=…` if you keep weights elsewhere. For
 DFlash2, also fetch the drafter (2.2 GB) → `/var/tmp/models/GLM-5.3-Flash-DFlash2`.
 
@@ -184,7 +184,7 @@ lives in the high-acceptance zone. Detail and how to read these:
 
 ### KV pool ceiling on TP2 (2026-08-28)
 
-> **Superseded 2026-09-02 — the shipped launcher now pins `--kv-cache-memory 6442450944`
+> **Superseded 2026-09-02, the shipped launcher now pins `--kv-cache-memory 6442450944`
 > (6 GiB).** The guidance below ("let the profiler size the pool, never pin") was written
 > before we measured what the profiler-sized pool costs under load: at the 3 GiB pin
 > @tmooch measured 6 preemptions under load and 0 at 6 GiB, with the pool going
@@ -192,7 +192,7 @@ lives in the high-acceptance zone. Detail and how to read these:
 > the memory is available, so 6 GiB was adopted as the default in
 > [#16](../../pull/16). Measurement and reasoning:
 > [docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md](docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md).
-> The sharp edge below is still real — a pin removes the activation reservation — which is
+> The sharp edge below is still real, a pin removes the activation reservation, which is
 > why the shipped pin is a *measured* one, validated under load, not a guess. Do not raise
 > it without repeating that measurement.
 
@@ -252,12 +252,12 @@ point. It does not recover on its own.
 - **`enable_thinking: false` is also the faster setting** (+8 % acceptance) — reasoning traces
   are higher-entropy and draft worse. Caveat: with thinking off GLM emits untagged
   reasoning-prose into `content`, which some agent harnesses mis-parse; see the deploy report.
-- **K=7 is the default, but it is a workload choice — it was swept.** Conditional per-position
+- **K=7 is the default, but it is a workload choice, it was swept.** Conditional per-position
   acceptance is nearly flat (0.93/0.89/0.84/0.81/0.79/0.59/0.94), so the last position still
   earns; the drafter's `block_size: 8` caps K at 7 anyway, and a lower K gives a prettier
   *ratio* and worse throughput on a single stream. **But the sweep on 2026-09-02
   ([docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md](docs/TP2-SPEC-DEPTH-AND-KV-2026-09-02.md),
-  "Speculative depth: k=7 below C4, k=5 above it") found it inverts under concurrency** —
+  "Speculative depth: k=7 below C4, k=5 above it") found it inverts under concurrency**, 
   k=5 beats k=7 by +29.9% at C4 and +18.3% at C6, while losing on every single-stream prompt.
   That doc's result, quoted: "`num_speculative_tokens` is a **workload choice, not a
   default.** It inverts at C4… **The default stays k=7** (single-user and low-concurrency is
