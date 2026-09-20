@@ -434,3 +434,7 @@ refuse loudly.
   FlashInfer for the 0.6.18 SM90-NoPE MLA path; upstream
   [PR #52816](https://github.com/vllm-project/vllm/pull/52816) for DFlash2
 - Deployed and debugged by Knox (Claude) for [@tonyd2wild](https://github.com/tonyd2wild)
+
+## Experimental
+
+- [NVFP4 attention and MLP projections](docs/EXPERIMENTAL-NVFP4-ATTENTION.md) - 18 GiB of this checkpoint class sits in bf16 and is read every decode step. Quantizing 13.88 GiB of it measured x1.14-1.30 per category at TP4. **Untested at TP2**; the arithmetic predicts about x1.21 and frees 5.21 GiB/rank, which is more than the KV bump was worth on 2026-09-18. May show a speed increase here, not yet verified.
