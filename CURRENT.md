@@ -58,17 +58,22 @@ the way the launcher already overlays the kpool file. Both are written up in
 ## Weights
 
 ```
-/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat
+/var/tmp/models/GLM-5.3-Flash-NVFP4-nvidia     # DFlash2 launcher default (since 2026-09-24, #23)
+/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat     # MTP launchers; DFlash2 falls back to it
 ```
 
-This is the path the launcher checks (`MODEL_HOST_PATH`), on both nodes.
-[RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4),
-compressed-tensors.
+These are the paths the launchers check (`MODEL_HOST_PATH`), on both nodes.
+[nvidia/GLM-5.3-Flash-NVFP4](https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4) (ModelOpt,
+attention excluded from quantization, W4A16) or
+[RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4)
+(compressed-tensors, W4A4, about 3 GiB/rank smaller).
 
-**ModelOpt and abliterated NVFP4 quants corrupt tokens on this stack; the launcher refuses
-them.** The guard reads `quantization_config.quant_method` from `config.json` and exits 5 on
-`modelopt` unless `ALLOW_MODELOPT=1` (vLLM
-[#54150](https://github.com/vllm-project/vllm/issues/54150)).
+**ModelOpt builds that quantize attention (LibertAIDAI, the abliterated ones) corrupt tokens on
+this stack; the launchers refuse them** via `tools/checkpoint_guard.py`, which exits 5 unless
+every layer's `self_attn` block is in the ignore list (the nvidia shape) or `ALLOW_MODELOPT=1`
+(vLLM [#54150](https://github.com/vllm-project/vllm/issues/54150)). The MTP launchers also
+refuse a checkpoint whose MTP head is stored in a different quantization than the model: the
+nvidia build ships layer 45 in BF16, and no sm121 MoE backend can serve that pairing (#23).
 
 The drafter, also on both nodes: `/var/tmp/models/GLM-5.3-Flash-DFlash2` (2.2 GB,
 [incoai/GLM-5.3-Flash-DFlash2](https://huggingface.co/incoai/GLM-5.3-Flash-DFlash2)).

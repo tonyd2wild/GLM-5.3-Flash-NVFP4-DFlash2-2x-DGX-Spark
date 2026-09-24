@@ -25,6 +25,7 @@ case "$NODE_RANK" in
 esac
 
 test -f "$MODEL_HOST_PATH/config.json"
+python3 "$(dirname "$0")/tools/checkpoint_guard.py" "$MODEL_HOST_PATH" mtp || exit 5
 mkdir -p "$CACHE_HOST_PATH"
 docker rm -f "$NAME" 2>/dev/null || true
 

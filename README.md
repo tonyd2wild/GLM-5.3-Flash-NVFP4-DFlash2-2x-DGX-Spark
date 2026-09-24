@@ -6,26 +6,33 @@
 
 One launcher: [`launch-glm53-vllm-tp2-dflash2.sh`](launch-glm53-vllm-tp2-dflash2.sh), **worker Spark4 (rank 1) FIRST, then head Reddie (rank 0)**, which serves :8000.
 
-Weights: [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (compressed-tensors) at `/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat`, ModelOpt and abliterated NVFP4 quants corrupt tokens on this stack and the launcher refuses them.
+Weights: [nvidia/GLM-5.3-Flash-NVFP4](https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4) at `/var/tmp/models/GLM-5.3-Flash-NVFP4-nvidia` for the DFlash2 launcher (RedHatAI at `/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat` for MTP or when memory is tight). ModelOpt builds that quantize attention, including the abliterated ones, corrupt tokens on this stack and the launchers refuse them.
 
 Everything else here is reference: the bring-up log, the day-0 bug receipts, the benchmark history, and the open problems.
 
 ---
 
-## ⭐ Checkpoint: `RedHatAI/GLM-5.3-Flash-NVFP4` is now the default (corruption fix)
+## ⭐ Checkpoint: `nvidia/GLM-5.3-Flash-NVFP4` is the DFlash2 default (2026-09-24, issue #23)
 
-ModelOpt-quantized NVFP4 builds of GLM-5.3-Flash (`LibertAIDAI/GLM-5.3-Flash-NVFP4` and the abliterated variants) emit **intermittent corrupted token IDs** ([vLLM #54150](https://github.com/vllm-project/vllm/issues/54150)). Nearly invisible in English, but when a corrupted token lands inside a tool-call block the parser desyncs and generation can spiral into a repetition lock.
+ModelOpt NVFP4 builds that quantize attention (`LibertAIDAI/GLM-5.3-Flash-NVFP4` and the abliterated variants) emit **intermittent corrupted token IDs** ([vLLM #54150](https://github.com/vllm-project/vllm/issues/54150)). Nearly invisible in English, but when a corrupted token lands inside a tool-call block the parser desyncs and generation can spiral into a repetition lock. NVIDIA's own build keeps every layer's attention in high precision and is clean.
 
-We reproduced and fixed it on this exact cluster (Korean-Hangul probe, `temperature 0`, non-streaming, 3 passes):
+Korean-Hangul probe (`temperature 0`, non-streaming, 3 passes):
 
-| checkpoint | `quant_method` | U+FFFD count (3 runs) |
-|---|---|---|
-| ModelOpt NVFP4 (LibertAIDAI / keys-ablit) | `modelopt` | 4 / 9 / 8 |
-| **[RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4)** | **`compressed-tensors`** | **0 / 0 / 0** |
+| checkpoint | `quant_method` | attention | U+FFFD count (3 runs) |
+|---|---|---|---|
+| ModelOpt NVFP4 (LibertAIDAI / keys-ablit) | `modelopt` | partly quantized | 4 / 9 / 8 |
+| **[nvidia/GLM-5.3-Flash-NVFP4](https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4)** | `modelopt` | **all 45 `self_attn` blocks excluded** (132-entry ignore list) | **0 / 0 / 0** ([#23](https://github.com/tonyd2wild/GLM-5.3-Flash-NVFP4-DFlash2-2x-DGX-Spark/issues/23), @calvarado2004) |
+| [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) | `compressed-tensors` | not quantized | 0 / 0 / 0 |
 
-**Default checkpoint: `RedHatAI/GLM-5.3-Flash-NVFP4`.** Ungated, same `Glm5NextForConditionalGeneration` arch, **drop-in** — no flag changes (`--moe-backend marlin`, DFlash2 `k=7`, fp8 KV all identical), just repoint the model path. Loads ~2x faster (11 large shards vs 120 small). Tradeoff: it also quantizes activations to 4-bit (W4A4) where the weight-only builds are W4A16, so expect a few points lower on hard reasoning — but the output is **correct**. Make sure the vision `chat_template_mm.jinja` is present in the weights dir or image requests 500.
+**Default for the DFlash2 launcher: `nvidia/GLM-5.3-Flash-NVFP4`** at `/var/tmp/models/GLM-5.3-Flash-NVFP4-nvidia` (the launcher falls back to the RedHat path if only that copy is on disk). Why: only the routed experts and the 3 dense MLP layers are NVFP4 and activations stay 16-bit (W4A16), where RedHatAI is W4A4. It is also the build our TP4 recipe runs as its censored default, and the 2026-09-18 speed night measured this launcher's config on it (8 GiB KV pin: 714,240 tokens at 262K). Tradeoff: it holds about 3 GiB/rank more than RedHatAI (132 bf16 modules), so RedHatAI stays the pick when memory is the constraint. DFlash2 k=7 on it, measured in #23: code 51.9, count 42.5, math 34.9, prose 28.4 tok/s (spec off: prose 14.1, code 14.0).
 
-Corruption first flagged by [@ajclark](https://github.com/ajclark) (issue #10). Uncensored (abliterated) builds remain available but carry the ModelOpt corruption until a compressed-tensors abliteration exists.
+**MTP does not work on the nvidia build.** NVIDIA ships the MTP head (layer 45) in BF16 while its ignore list stops at layer 44, so the draft MoE fails to load, and even with the ignore list fixed no sm121 MoE backend serves an NVFP4 target plus an unquantized draft MoE (`marlin` refuses unquantized MoE, `triton` refuses NVFP4, `flashinfer_trtllm` is sm100-only, `flashinfer_cutlass` cannot JIT in this image). DFlash2's drafter is a small dense model, so it is unaffected. The MTP launchers (`launch-glm53-vllm-tp2.sh`, `launch-glm53-vllm-tp4.sh`) keep RedHatAI as their checkpoint and now refuse a checkpoint whose MTP head is stored in a different quantization than the model. Full analysis: #23.
+
+`tools/checkpoint_guard.py` runs in every launcher: it refuses ModelOpt builds that quantize attention (override `ALLOW_MODELOPT=1`) and, for the MTP launchers, mismatched MTP heads. Make sure the vision `chat_template_mm.jinja` is present in the weights dir or image requests 500.
+
+Corruption first flagged by [@ajclark](https://github.com/ajclark) (issue #10). Uncensored (abliterated) builds remain available but carry the ModelOpt corruption until a clean abliteration exists (the TP4 recipe runs `Blackfrost-AI/GLM-5.3-Flash-DERISKED-NVFP4` with a config fix; it needs `ALLOW_MODELOPT=1` here).
+
+Image notes from #23: `flashinfer_cutlass` MoE cannot JIT in `sm121-v11-dflash2` (`nvrtc.h` is in the image but off the include path; putting the whole `nvidia/cu13/include` on `CPATH` breaks the CUTLASS stubs). One `cicc` of that FP4 build reached 8.7 GB RSS: warm such caches with `MAX_JOBS=1` beside a loaded model. KV bytes per token depend on the speculative config (6,996 without a drafter, 9,178 with DFlash2 k=7), so size `--kv-cache-memory` with the drafter on.
 
 ## Weights: censored or uncensored (drop-in)
 
@@ -33,7 +40,8 @@ Pick your weights: **same launcher, same recipe**, just point the model path at 
 
 | | HuggingFace | notes |
 |---|---|---|
-| **⭐ Default (recommended)** | [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) | **compressed-tensors, corruption-free** (see fix above) |
+| **⭐ Default (DFlash2)** | [nvidia/GLM-5.3-Flash-NVFP4](https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4) | ModelOpt W4A16, attention kept in high precision, corruption-free; no MTP (see above) |
+| Memory-lean / MTP | [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) | compressed-tensors W4A4, corruption-free, about 3 GiB/rank smaller; the MTP launchers' checkpoint |
 | Censored (legacy) | [LibertAIDAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/LibertAIDAI/GLM-5.3-Flash-NVFP4) | stock NVFP4 weight-only — ⚠️ ModelOpt token corruption |
 | **Uncensored (abliterated)** | [drowzeys/keys-GLM-5.3-Flash-NVFP4-ablit-l15-45-anchorstock](https://huggingface.co/drowzeys/keys-GLM-5.3-Flash-NVFP4-ablit-l15-45-anchorstock) | abliterated (layers 15-45, anchor-stock), no refusals |
 
@@ -62,8 +70,10 @@ No retag step: the launchers reference these `ghcr.io/tonyd2wild/…` tags direc
 `docker/` build chain uses local `radixark/…` stage tags, and those never leave the build.)
 
 **2. Fetch the weights** to the same path on both nodes (or NFS-export from the head):
-[RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (default) →
-`/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat`, this is the path the launcher checks
+[nvidia/GLM-5.3-Flash-NVFP4](https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4) (DFlash2 default) →
+`/var/tmp/models/GLM-5.3-Flash-NVFP4-nvidia`, or
+[RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (MTP launchers, or tighter memory) →
+`/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat`. These are the paths the launchers check
 (`MODEL_HOST_PATH`); override with `MODEL_HOST_PATH=…` if you keep weights elsewhere. For
 DFlash2, also fetch the drafter (2.2 GB) → `/var/tmp/models/GLM-5.3-Flash-DFlash2`.
 
@@ -424,7 +434,7 @@ refuse loudly.
 ## Credits
 
 - **Model**: [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) ·
-  **Quant**: [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (default, compressed-tensors)
+  **Quant**: [nvidia/GLM-5.3-Flash-NVFP4](https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4) (DFlash2 default) and [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (MTP, compressed-tensors)
   (their sm_121 notes were used directly) ·
   **Drafter**: [incoai/GLM-5.3-Flash-DFlash2](https://huggingface.co/incoai/GLM-5.3-Flash-DFlash2)
 - **barrydeen** — the gmu 0.85 reference config and quantization-coverage table from their

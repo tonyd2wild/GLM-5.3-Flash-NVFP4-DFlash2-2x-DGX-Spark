@@ -30,27 +30,22 @@ NODE_RANK="${1:?usage: launch-glm53-vllm-tp2.sh <0|1>}"
 
 IMAGE="ghcr.io/tonyd2wild/vllm-glm53-flash:sm121-v11-dflash2"
 NAME="vllm_glm53"
-# Checkpoint. The README's documented default is RedHatAI/GLM-5.3-Flash-NVFP4
-# (compressed-tensors) because the ModelOpt builds emit intermittent corrupted token IDs
-# -- vLLM #54150, measured 4/9/8 U+FFFD on a Hangul probe vs 0/0/0 for RedHatAI. The
-# launchers previously hardcoded the ModelOpt path, so the shipped default did not match
-# the documented one. Override with MODEL_HOST_PATH=... for the legacy/abliterated builds.
-MODEL_HOST_PATH="${MODEL_HOST_PATH:-/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat}"
+# Checkpoint. Partial-attention ModelOpt builds (LibertAIDAI, abliterated variants) emit
+# intermittent corrupted token IDs -- vLLM #54150, 4/9/8 U+FFFD on a Hangul probe. The nvidia
+# build keeps every layer's attention in high precision and is clean (0/0/0, issue #23), as is
+# RedHatAI (compressed-tensors). Override with MODEL_HOST_PATH=... for other builds.
+# Default checkpoint: nvidia/GLM-5.3-Flash-NVFP4 (issue #23; clean on the Hangul probe, attention
+# kept in high precision). Falls back to the RedHatAI copy if only that one is on disk.
+if [ -z "${MODEL_HOST_PATH:-}" ]; then
+  MODEL_HOST_PATH=/var/tmp/models/GLM-5.3-Flash-NVFP4-nvidia
+  [ -f "$MODEL_HOST_PATH/config.json" ] || MODEL_HOST_PATH=/var/tmp/models/GLM-5.3-Flash-NVFP4-redhat
+fi
 MODEL_PATH="/models/glm-5.3-flash-nvfp4"
 
-# Guard: fail loudly if the resolved checkpoint is a ModelOpt build, unless the operator
-# opted in. This is the mismatch that shipped for weeks -- the corruption is nearly
-# invisible in English prose and only bites inside tool-call blocks, so it will not
-# announce itself at boot.
-if [ -f "$MODEL_HOST_PATH/config.json" ] && [ "${ALLOW_MODELOPT:-0}" != "1" ]; then
-  _q=$(python3 -c "import json;print(json.load(open('$MODEL_HOST_PATH/config.json')).get('quantization_config',{}).get('quant_method',''))" 2>/dev/null || echo "")
-  if [ "$_q" = "modelopt" ]; then
-    echo "REFUSING: $MODEL_HOST_PATH is a ModelOpt build (quant_method=modelopt)." >&2
-    echo "  ModelOpt NVFP4 emits intermittent corrupted token IDs (vLLM #54150)." >&2
-    echo "  Use RedHatAI/GLM-5.3-Flash-NVFP4, or set ALLOW_MODELOPT=1 to override." >&2
-    exit 5
-  fi
-fi
+# Guard (tools/checkpoint_guard.py): refuse ModelOpt builds that quantize attention (the
+# corrupting shape) unless ALLOW_MODELOPT=1. The corruption is nearly invisible in English
+# prose and only bites inside tool-call blocks, so it will not announce itself at boot.
+python3 "$(dirname "$0")/tools/checkpoint_guard.py" "$MODEL_HOST_PATH" dflash2 || exit 5
 
 CACHE_HOST_PATH="/var/tmp/glm53-vllm-cache"
 HEAD_IP="192.168.192.2"

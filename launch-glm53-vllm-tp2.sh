@@ -22,15 +22,7 @@ MODEL_PATH="/models/glm-5.3-flash-nvfp4"
 # opted in. This is the mismatch that shipped for weeks -- the corruption is nearly
 # invisible in English prose and only bites inside tool-call blocks, so it will not
 # announce itself at boot.
-if [ -f "$MODEL_HOST_PATH/config.json" ] && [ "${ALLOW_MODELOPT:-0}" != "1" ]; then
-  _q=$(python3 -c "import json;print(json.load(open('$MODEL_HOST_PATH/config.json')).get('quantization_config',{}).get('quant_method',''))" 2>/dev/null || echo "")
-  if [ "$_q" = "modelopt" ]; then
-    echo "REFUSING: $MODEL_HOST_PATH is a ModelOpt build (quant_method=modelopt)." >&2
-    echo "  ModelOpt NVFP4 emits intermittent corrupted token IDs (vLLM #54150)." >&2
-    echo "  Use RedHatAI/GLM-5.3-Flash-NVFP4, or set ALLOW_MODELOPT=1 to override." >&2
-    exit 5
-  fi
-fi
+python3 "$(dirname "$0")/tools/checkpoint_guard.py" "$MODEL_HOST_PATH" mtp || exit 5
 
 CACHE_HOST_PATH="/var/tmp/glm53-vllm-cache"
 HEAD_IP="192.168.192.2"
