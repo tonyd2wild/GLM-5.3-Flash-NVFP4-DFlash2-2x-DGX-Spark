@@ -565,6 +565,7 @@ refuse loudly.
 
 ## Credits
 
+- **New default serving stack (2026-09-29)**: [knapcio/GLM-5.3-Flash-4x-DGX-Spark-TP4](https://github.com/knapcio/GLM-5.3-Flash-4x-DGX-Spark-TP4) by [@knapcio](https://github.com/knapcio), ported here to TP2
 - **Model**: [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash) ·
   **Quant**: [nvidia/GLM-5.3-Flash-NVFP4](https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4) (DFlash2 default) and [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4) (MTP, compressed-tensors)
   (their sm_121 notes were used directly) ·
