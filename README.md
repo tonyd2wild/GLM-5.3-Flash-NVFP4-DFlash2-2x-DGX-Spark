@@ -573,6 +573,7 @@ refuse loudly.
 - **barrydeen** — the gmu 0.85 reference config and quantization-coverage table from their
   independently published DGX Spark recipe
 - **@ozskywalker** — [#5](../../pull/5), Dockerfile tag chain + build script
+- [Matt Mastracci](https://github.com/mmastrac): the [GLM-5.3-Flash GX10 recipe](https://github.com/kindlingai/glm-5.3-flash-gx10) behind the KDA conv split, sparse-MLA prefill and MoE prefill ideas in knapcio's stack, the FlashKDA fp32-state kernels, and vLLM [PR #58454](https://github.com/vllm-project/vllm/pull/58454)
 - vLLM [PR #53906](https://github.com/vllm-project/vllm/pull/53906) authors for the day-0 image;
   FlashInfer for the 0.6.18 SM90-NoPE MLA path; upstream
   [PR #52816](https://github.com/vllm-project/vllm/pull/52816) for DFlash2
